@@ -38,9 +38,22 @@ export default function Home() {
       setLoading(null);
     }
   }
-  const onVerify = () =>{
 
+  async function onVerify() {
+    setLoading("verify");
+    try {
+      const response = await fetch("/api/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zkProof: submitResult?.zkProof }),
+      });
+      const jsonResponse = await response.json();
+      setVerifyResult(jsonResponse);
+    } finally {
+      setLoading(null);
+    }
   }
+
 
   return (
     <main className="min-h-screen bg-[url(/img/bg.svg)] bg-center bg-cover p-6 flex items-start justify-center">

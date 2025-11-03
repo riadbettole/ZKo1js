@@ -1,3 +1,13 @@
 {
-    "records": []
+  "records": [
+    {
+      "userId": "sssss",
+      "fieldHash": "61eb5cce2826f1025587539fabb93771595361df00128edbcdbec8e3cb5396b8",
+      "providerSignature": "cdbe054628179d36c22f47bf55958b91e21bd7aa8a8d7179a1f61d8079110200",
+      "proof": "7b027928cd8d430556faae00cf8173d8fca782d232a1918cd360de6488c21cba",
+      "status": "verified",
+      "createdAt": 1761645372502,
+      "verifiedAt": 1761645372502
+    }
+  ]
 }
