@@ -1,7 +1,8 @@
 "use client"
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { IoIosArrowForward } from "react-icons/io";
 import { MdOutlineInfo } from "react-icons/md";
+import ZkWorkerClient from "./workers/zkWorkerClient";
 
 export default function Home() {
   const [userId, setUserId] = useState("");
@@ -12,6 +13,14 @@ export default function Home() {
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [submitResult, setSubmitResult] = useState<any>(null);
   const [loading, setLoading] = useState<"submit" | "verify" |any>(null);
+  
+  // Test the web worker on component mount
+  useEffect(() => {
+    const workerClient = new ZkWorkerClient();
+    workerClient.sayHi().then((message) => {
+      console.log(message); // Should log "Hello from the ZK worker!"
+    });
+  }, []);
   
   const onSubmit = async () =>{
     // Let's activate the loading animation
@@ -56,7 +65,7 @@ export default function Home() {
 
 
   return (
-    <main className="min-h-screen bg-[url(/img/bg.svg)] bg-center bg-cover p-6 flex items-start justify-center">
+    <main className="min-h-screen bg-[url(/img/bg.svg)] bg-center bg-cover p-6 flex items-start justify-center text-white">
       <div className="w-full max-w-3xl space-y-6">
         <header className="px-2 py-4">
           <div className="text-2xl font-extrabold">zKYC</div>
@@ -64,7 +73,7 @@ export default function Home() {
 
         {/* Data */}
         <section className="border border-white/10 p-4 rounded-xl">
-          <h2 className="font-extrabold">KYC Data</h2>
+          <h2 className="font-extrabold ">KYC Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             <div>
               <label className="block text-xs text-white/60 mb-1">User ID <span>*</span></label>
