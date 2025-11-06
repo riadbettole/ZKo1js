@@ -1,7 +1,8 @@
 "use client"
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { IoIosArrowForward } from "react-icons/io";
 import { MdOutlineInfo } from "react-icons/md";
+import { IoChevronDown, IoChevronUp } from "react-icons/io5";
 import ZkWorkerClient from "./workers/zkWorkerClient";
 
 export default function Home() {
@@ -13,51 +14,97 @@ export default function Home() {
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [submitResult, setSubmitResult] = useState<any>(null);
   const [loading, setLoading] = useState<"submit" | "verify" |any>(null);
+  const [expandedSubmit, setExpandedSubmit] = useState(false);
+  const [expandedVerify, setExpandedVerify] = useState(false);
   
-  // Test the web worker on component mount
+  const workerClientRef = useRef<ZkWorkerClient | null>(null);
+
   useEffect(() => {
-    const workerClient = new ZkWorkerClient();
-    workerClient.sayHi().then((message) => {
-      console.log(message); // Should log "Hello from the ZK worker!"
-    });
+    // Initialize worker client
+    workerClientRef.current = new ZkWorkerClient();
+
+    // Cleanup on unmount
+    return () => {
+      workerClientRef.current?.terminate();
+    };
   }, []);
-  
-  const onSubmit = async () =>{
-    // Let's activate the loading animation
+
+  const onSubmit = async () => {
     setLoading("submit");
-    // if we already verified, let's reset 
     setVerifyResult(null);
-    try{
-      const response = await fetch("/api/submit",{
-        method: "POST",
-        headers: {"Content-type": "application/json"},
-        body: JSON.stringify({
-            userId,
-            fullName,
-            dob,
-            idNumber
-          })
-        }
-      )
-      const jsonResponse = await response.json();
-      setSubmitResult(jsonResponse);
-    }catch(e){
-      console.log("error: ",e);
-    }finally{
+    setExpandedSubmit(false); // Reset expanded state
+    
+    if (!workerClientRef.current) {
+      setSubmitResult({ error: "Worker not initialized" });
+      setLoading(null);
+      return;
+    }
+
+    if (!userId || !fullName || !dob || !idNumber) {
+      setSubmitResult({ error: "All fields are required" });
+      setLoading(null);
+      return;
+    }
+
+    try {
+      // Use worker to generate proof (runs in background thread, doesn't block UI)
+      const zkProof = await workerClientRef.current.createProof(
+        fullName,
+        dob,
+        idNumber
+      );
+
+      setSubmitResult({
+        ok: true,
+        userId,
+        status: "verified",
+        expectedHash: zkProof.publicOutput,
+        zkProof,
+        message: "ZK proof generated successfully. Actual data is hidden.",
+      });
+    } catch (e) {
+      console.error("Proof generation error:", e);
+      setSubmitResult({ 
+        error: e instanceof Error ? e.message : "Failed to generate proof",
+        hint: "Make sure o1js is properly installed and the program compiles correctly."
+      });
+    } finally {
       setLoading(null);
     }
-  }
+  };
 
   async function onVerify() {
     setLoading("verify");
+    setExpandedVerify(false); // Reset expanded state
+    
+    if (!workerClientRef.current) {
+      setVerifyResult({ error: "Worker not initialized" });
+      setLoading(null);
+      return;
+    }
+
+    if (!submitResult?.zkProof) {
+      setVerifyResult({ error: "No proof available. Please generate a proof first." });
+      setLoading(null);
+      return;
+    }
+
     try {
-      const response = await fetch("/api/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ zkProof: submitResult?.zkProof }),
+      // Use worker to verify proof (runs in background thread, doesn't block UI)
+      const isValid = await workerClientRef.current.verifyProof(submitResult.zkProof);
+      
+      setVerifyResult({
+        verified: isValid,
+        message: isValid
+          ? "Proof is valid! The data matches the expected hash (without revealing the data)."
+          : "Proof is invalid. The data may have been tampered with or doesn't match.",
       });
-      const jsonResponse = await response.json();
-      setVerifyResult(jsonResponse);
+    } catch (e) {
+      console.error("Verification error:", e);
+      setVerifyResult({
+        error: e instanceof Error ? e.message : "Verification failed",
+        hint: "Make sure the proof structure is correct and the verification key matches.",
+      });
     } finally {
       setLoading(null);
     }
@@ -71,7 +118,6 @@ export default function Home() {
           <div className="text-2xl font-extrabold">zKYC</div>
         </header>
 
-        {/* Data */}
         <section className="border border-white/10 p-4 rounded-xl">
           <h2 className="font-extrabold ">KYC Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
@@ -105,12 +151,56 @@ export default function Home() {
             <IoIosArrowForward />
           </button>
 
-          <div className="mt-3 ml-3.5 text-xs text-white/70">
-            {submitResult ? <pre className="whitespace-pre-wrap">{JSON.stringify(submitResult, null, 2)}</pre> : <p className="text-right">No submission yet!</p>}
+          <div className="mt-3">
+            {submitResult ? (
+              <div className="bg-black/50 border border-white/20 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setExpandedSubmit(!expandedSubmit)}
+                  className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-white">
+                      {submitResult.error ? "Error Details" : "Proof Generated"}
+                    </span>
+                    {submitResult.ok && (
+                      <span className="text-xs text-green-400">✓ {submitResult.status}</span>
+                    )}
+                  </div>
+                  {expandedSubmit ? (
+                    <IoChevronUp className="text-white/60" />
+                  ) : (
+                    <IoChevronDown className="text-white/60" />
+                  )}
+                </button>
+                {expandedSubmit && (
+                  <div className="border-t border-white/10 p-3 max-h-96 overflow-auto">
+                    <pre className="text-xs text-white/80 font-mono whitespace-pre-wrap break-words">
+                      {JSON.stringify(submitResult, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {!expandedSubmit && submitResult.ok && (
+                  <div className="border-t border-white/10 p-3 text-xs text-white/70">
+                    <p className="mb-1"><span className="text-white/50">User ID:</span> {submitResult.userId}</p>
+                    <p className="mb-1"><span className="text-white/50">Hash:</span> {submitResult.expectedHash?.substring(0, 20)}...</p>
+                    <p className="text-white/60 italic">{submitResult.message}</p>
+                    <p className="mt-2 text-white/40 text-[10px]">Click to view full proof JSON</p>
+                  </div>
+                )}
+                {!expandedSubmit && submitResult.error && (
+                  <div className="border-t border-white/10 p-3 text-xs text-red-400">
+                    <p className="font-semibold mb-1">{submitResult.error}</p>
+                    {submitResult.details && <p className="text-white/70">{submitResult.details}</p>}
+                    {submitResult.hint && <p className="text-white/50 italic mt-1">{submitResult.hint}</p>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-right text-xs text-white/60">No submission yet!</p>
+            )}
           </div>
         </section>
 
-        {/* Verify */}
         <section className="border border-white/10 p-4 rounded-xl">
           <button
             onClick={onVerify}
@@ -121,15 +211,58 @@ export default function Home() {
             <IoIosArrowForward />
           </button>
 
-          <div className="mt-3 text-xs text-white/70">
-            {verifyResult ? <pre className="whitespace-pre-wrap">{JSON.stringify(verifyResult, null, 2)}</pre> : <p className="text-right">No verification yet!</p>}
+          <div className="mt-3">
+            {verifyResult ? (
+              <div className="bg-black/50 border border-white/20 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setExpandedVerify(!expandedVerify)}
+                  className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-white">Verification Result</span>
+                    {verifyResult.verified !== undefined && (
+                      <span className={`text-xs ${verifyResult.verified ? "text-green-400" : "text-red-400"}`}>
+                        {verifyResult.verified ? "✓ Valid" : "✗ Invalid"}
+                      </span>
+                    )}
+                  </div>
+                  {expandedVerify ? (
+                    <IoChevronUp className="text-white/60" />
+                  ) : (
+                    <IoChevronDown className="text-white/60" />
+                  )}
+                </button>
+                {expandedVerify && (
+                  <div className="border-t border-white/10 p-3 max-h-96 overflow-auto">
+                    <pre className="text-xs text-white/80 font-mono whitespace-pre-wrap break-words">
+                      {JSON.stringify(verifyResult, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {!expandedVerify && verifyResult.verified !== undefined && (
+                  <div className="border-t border-white/10 p-3 text-xs text-white/70">
+                    <p className={`mb-2 ${verifyResult.verified ? "text-green-400" : "text-red-400"}`}>
+                      {verifyResult.message || (verifyResult.verified ? "Proof is valid!" : "Proof is invalid.")}
+                    </p>
+                    <p className="text-white/40 text-[10px]">Click to view full verification details</p>
+                  </div>
+                )}
+                {!expandedVerify && verifyResult.error && (
+                  <div className="border-t border-white/10 p-3 text-xs text-red-400">
+                    <p className="font-semibold mb-1">{verifyResult.error}</p>
+                    {verifyResult.details && <p className="text-white/70">{verifyResult.details}</p>}
+                    {verifyResult.hint && <p className="text-white/50 italic mt-1">{verifyResult.hint}</p>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-right text-xs text-white/60">No verification yet!</p>
+            )}
           </div>
         </section>
         <div className="flex justify-start items-center gap-x-1">
           <MdOutlineInfo />
-          <span className="text-sm text-white/80">
-            This PoC is demonstrating the feasibility of zk-proof generation on Web and Mobile
-          </span>
+          <p className="text-xs text-white/60">Zero-Knowledge KYC Verification System</p>
         </div>
       </div>
     </main>
